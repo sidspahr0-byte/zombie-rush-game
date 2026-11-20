@@ -432,6 +432,14 @@
           return 12 + level * 6 + (level % 5 === 0 ? 1 : 0);
         }
 
+        function maxActiveZombies() {
+          return Math.min(5 + Math.floor(level / 2), 10);
+        }
+
+        function zombieSpawnInterval() {
+          return Math.max(.55, 1.75 - level * .035);
+        }
+
         function spawnZombie() {
           const edge = Math.floor(Math.random() * 4);
           const padding = 28;
@@ -617,7 +625,7 @@
           if (state !== "playing" || !player) return;
           const now = performance.now();
           if (now < player.meleeCooldownUntil) return;
-          player.meleeCooldownUntil = now + 520;
+          player.meleeCooldownUntil = now + 650;
           player.meleeTime = .24;
           player.meleeAngle = Math.atan2(aim.y - player.y, aim.x - player.x);
           let hits = 0;
@@ -628,8 +636,8 @@
             const distance = Math.hypot(dx, dy);
             const angle = Math.atan2(dy, dx);
             const angleDifference = Math.atan2(Math.sin(angle - player.meleeAngle), Math.cos(angle - player.meleeAngle));
-            if (distance > 76 + zombie.radius || Math.abs(angleDifference) > .9) continue;
-            zombie.health -= 2.25;
+            if (distance > 62 + zombie.radius || Math.abs(angleDifference) > .75) continue;
+            zombie.health -= .75;
             hits++;
             makeBurst(zombie.x, zombie.y, "#f2dfb6", 9);
             if (zombie.health <= 0) killZombie(zombie);
@@ -720,11 +728,11 @@
           player.y = Math.max(player.radius, Math.min(H - player.radius, player.y + my / magnitude * player.speed * dt));
 
           const count = waveZombieCount();
-          if (spawned < count) {
+          if (spawned < count && zombies.length < maxActiveZombies()) {
             spawnClock -= dt;
             if (spawnClock <= 0) {
               spawnZombie();
-              spawnClock = Math.max(.18, .75 - level * .07);
+              spawnClock = zombieSpawnInterval();
             }
           }
 
