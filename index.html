@@ -85,7 +85,7 @@
       .board-footer { justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 13px 2px 0; color: var(--muted); font-size: 12px; }
       .keys { flex-wrap: wrap; gap: 5px; }
       kbd { min-width: 22px; padding: 3px 6px; border: 1px solid #384133; border-radius: 5px; background: var(--panel); color: #d0d7c8; font: inherit; font-size: 11px; text-align: center; }
-      .game-controls { gap: 7px; }
+      .game-controls { flex-wrap: wrap; gap: 7px; }
       .game-controls button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); cursor: pointer; }
       .game-controls button:hover { border-color: #68755d; }
       .game-controls button:disabled { opacity: .48; cursor: not-allowed; }
@@ -130,7 +130,7 @@
           <span class="health-value"><span class="stat-value" id="health">100%</span><span class="health-track"><span class="health-fill" id="healthFill"></span></span></span>
         </div>
         <div class="stat"><span class="stat-label">Weapon</span><span class="stat-value" id="weapon">Pistol</span></div>
-        <div class="stat"><span class="stat-label">Ammo</span><span class="stat-value" id="ammo">∞</span></div>
+        <div class="stat"><span class="stat-label">Ammo</span><span class="stat-value" id="ammo">12 / 12</span></div>
         <div class="stat"><span class="stat-label">Grenades</span><span class="stat-value" id="grenades">1</span></div>
         <div class="stat"><span class="stat-label">Shield</span><span class="stat-value" id="shield">—</span></div>
       </section>
@@ -141,7 +141,7 @@
           <div class="overlay-card">
             <div class="overlay-icon" id="overlayIcon" aria-hidden="true">✦</div>
             <h2 id="overlayTitle">The night is yours</h2>
-            <p id="overlayText">Survive endless zombie waves. Walk over supply drops for shields, medkits, and grenades. Aim with your mouse, hold to fire, and press G to launch a grenade. Every fifth level brings a boss.</p>
+            <p id="overlayText">Survive endless zombie waves. Walk over weapon drops to unlock guns, then switch between them with Q/E or keys 1–5. Every gun has limited ammo and reloads. Press G to launch a grenade; every fifth level brings a boss.</p>
             <button class="primary-button" id="startButton" type="button">Start survival</button>
           </div>
         </div>
@@ -151,9 +151,12 @@
         <div class="keys" aria-label="Keyboard controls">
           <span>Move</span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>or arrows</span>
           <span>· Aim with mouse, hold to fire</span><span>· Hold <kbd>Space</kbd> to fire</span>
-          <span>· <kbd>G</kbd> grenade</span><span>· Auto Rifle: 32 shots, 0.5s reload</span>
+          <span>· <kbd>Q</kbd>/<kbd>E</kbd> switch unlocked guns</span>
+          <span>· <kbd>1</kbd>–<kbd>5</kbd> equip</span><span>· All guns reload</span><span>· <kbd>G</kbd> grenade</span>
         </div>
         <div class="game-controls">
+          <button type="button" id="prevWeaponButton" aria-label="Previous unlocked weapon">Gun ◀</button>
+          <button type="button" id="nextWeaponButton" aria-label="Next unlocked weapon">Gun ▶</button>
           <button type="button" id="grenadeButton" aria-label="Throw grenade">Grenade (1) <kbd>G</kbd></button>
           <button type="button" id="pauseButton" aria-label="Pause game">Pause <kbd>P</kbd></button>
           <button type="button" id="restartButton">Restart <kbd>R</kbd></button>
@@ -182,6 +185,8 @@
         const ammoLabel = document.getElementById("ammo");
         const grenadesLabel = document.getElementById("grenades");
         const shieldLabel = document.getElementById("shield");
+        const prevWeaponButton = document.getElementById("prevWeaponButton");
+        const nextWeaponButton = document.getElementById("nextWeaponButton");
         const grenadeButton = document.getElementById("grenadeButton");
         const statusText = document.getElementById("statusText");
         const overlay = document.getElementById("overlay");
@@ -201,16 +206,17 @@
           ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0]
         };
         const WEAPONS = [
-          { name: "Pistol", delay: 170, bulletSpeed: 880, spread: 0, pellets: 1, color: "#fff0bd" },
-          { name: "SMG", delay: 95, bulletSpeed: 980, spread: .018, pellets: 1, color: "#78e9b2" },
-          { name: "Shotgun", delay: 360, bulletSpeed: 850, spread: .17, pellets: 3, color: "#ffb36b" },
-          { name: "Auto Rifle", delay: 65, bulletSpeed: 1050, spread: .024, pellets: 1, magazineSize: 32, reloadTime: .5, color: "#79dfff" }
+          { name: "Pistol", delay: 170, bulletSpeed: 880, spread: 0, pellets: 1, magazineSize: 12, reloadTime: .55, color: "#fff0bd" },
+          { name: "SMG", delay: 95, bulletSpeed: 980, spread: .018, pellets: 1, magazineSize: 40, reloadTime: .85, color: "#78e9b2" },
+          { name: "Shotgun", delay: 360, bulletSpeed: 850, spread: .17, pellets: 3, magazineSize: 6, reloadTime: 1.15, color: "#ffb36b" },
+          { name: "Auto Rifle", delay: 65, bulletSpeed: 1050, spread: .024, pellets: 1, magazineSize: 32, reloadTime: .5, color: "#79dfff" },
+          { name: "Rocket Launcher", delay: 650, bulletSpeed: 680, spread: 0, pellets: 1, magazineSize: 3, reloadTime: 1.5, rocket: true, damage: 22, bossDamage: 55, blastRadius: 135, color: "#ff805d" }
         ];
         let player, zombies = [], bullets = [], particles = [], weaponPickups = [], supplyPickups = [], grenades = [];
         let mouseFiring = false, spaceFiring = false;
         let state = "ready", score = 0, best = 0, level = 1, health = 100;
         let spawned = 0, defeated = 0, spawnClock = 0, intermission = 0;
-        let lastTime = 0, lastShot = 0, reloadNoticeUntil = 0, damageFlash = 0, banner = "", bannerTime = 0;
+        let lastTime = 0, lastShot = 0, damageFlash = 0, banner = "", bannerTime = 0;
         let aim = { x: W * .75, y: H * .5 };
 
         try { best = Number(localStorage.getItem("zombie-rush-best")) || 0; } catch { best = 0; }
@@ -228,29 +234,65 @@
           scoreLabel.textContent = String(score).padStart(4, "0");
           levelLabel.textContent = String(level);
           healthLabel.textContent = `${Math.ceil(health)}%`;
-          const weapon = WEAPONS[player?.weaponRank || 0];
+          const rank = player?.weaponRank || 0;
+          const weapon = WEAPONS[rank];
+          const weaponState = player?.weapons[rank];
           weaponLabel.textContent = weapon.name;
           const now = performance.now();
-          ammoLabel.textContent = state === "playing" && now < reloadNoticeUntil
+          ammoLabel.textContent = state === "playing" && now < (weaponState?.reloadNoticeUntil || 0)
             ? "Reloading"
-            : weapon.magazineSize ? `${player.ammo} / ${weapon.magazineSize}` : "∞";
+            : `${weaponState?.ammo ?? weapon.magazineSize} / ${weapon.magazineSize}`;
           grenadesLabel.textContent = String(player?.grenades || 0);
           shieldLabel.textContent = player?.shieldTime > 0 ? `${player.shieldTime.toFixed(1)}s` : "—";
+          const hasOtherWeapon = player?.weapons.some((entry, index) => entry.unlocked && index !== rank);
+          prevWeaponButton.disabled = state !== "playing" || !hasOtherWeapon;
+          nextWeaponButton.disabled = state !== "playing" || !hasOtherWeapon;
           grenadeButton.disabled = state !== "playing" || !player?.grenades;
           grenadeButton.textContent = `Grenade (${player?.grenades || 0}) · G`;
           healthFill.style.width = `${health}%`;
           healthFill.style.background = health > 55 ? "#c3f36b" : health > 25 ? "#ffc75c" : "#ff765e";
         }
 
+        function createWeaponStates() {
+          return WEAPONS.map((weapon, index) => ({
+            unlocked: index === 0,
+            ammo: weapon.magazineSize,
+            reloadUntil: 0,
+            reloadNoticeUntil: 0
+          }));
+        }
+
+        function selectWeapon(rank) {
+          if (state !== "playing" || !player || !player.weapons[rank]?.unlocked) return;
+          player.weaponRank = rank;
+          lastShot = 0;
+          const weapon = WEAPONS[rank];
+          const weaponState = player.weapons[rank];
+          statusText.textContent = weaponState.reloadUntil > performance.now() ? "Reloading" : `${weapon.name} equipped`;
+          banner = `${weapon.name.toUpperCase()} EQUIPPED`;
+          bannerTime = 1.2;
+          updateStats();
+        }
+
+        function cycleWeapon(step) {
+          if (state !== "playing" || !player) return;
+          for (let offset = 1; offset < WEAPONS.length; offset++) {
+            const rank = (player.weaponRank + step * offset + WEAPONS.length) % WEAPONS.length;
+            if (player.weapons[rank].unlocked) {
+              selectWeapon(rank);
+              return;
+            }
+          }
+        }
+
         function startGame() {
-          player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, ammo: Infinity, reloadUntil: 0, grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
+          player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
           zombies = [];
           bullets = [];
           particles = [];
           weaponPickups = [];
           supplyPickups = [];
           grenades = [];
-          reloadNoticeUntil = 0;
           lastShot = 0;
           mouseFiring = false;
           spaceFiring = false;
@@ -275,7 +317,7 @@
         }
 
         function waveZombieCount() {
-          return 8 + level * 5 + (level % 5 === 0 ? 1 : 0);
+          return 12 + level * 6 + (level % 5 === 0 ? 1 : 0);
         }
 
         function spawnZombie() {
@@ -295,17 +337,17 @@
                 ? zombieTypes.runner
                 : zombieTypes.shambler;
           const maxHealth = type === zombieTypes.boss
-            ? 50 + level * 10
+            ? 70 + level * 14
             : type === zombieTypes.brute
-              ? 3 + Math.floor(level / 4)
+              ? 5 + Math.floor(level / 3)
               : type === zombieTypes.runner
-                ? 1 + Math.floor(level / 8)
-                : 1 + Math.floor(level / 6);
+                ? 1 + Math.floor(level / 4)
+                : 1 + Math.floor(level / 3);
           zombies.push({
             x, y, type, radius: type.radius, health: maxHealth, maxHealth,
             speed: type === zombieTypes.boss
               ? Math.min(type.speed + level * 1.1 + Math.random() * 6, 70)
-              : Math.min(type.speed + level * (type === zombieTypes.runner ? 5 : 3) + Math.random() * 9, 190),
+              : Math.min(type.speed + level * (type === zombieTypes.runner ? 6 : 4) + Math.random() * 12, 200),
             wobble: Math.random() * Math.PI * 2, hit: 0
           });
           if (spawned === 0) statusText.textContent = "Under attack";
@@ -334,9 +376,10 @@
           const points = zombie.type === zombieTypes.boss ? 1000 : zombie.type === zombieTypes.brute ? 300 : zombie.type === zombieTypes.runner ? 150 : 100;
           score += points * level;
           makeBurst(zombie.x, zombie.y, zombie.type.skin, 12);
-          if (player.weaponRank < WEAPONS.length - 1 &&
-            (zombie.type === zombieTypes.boss || Math.random() < .24) && weaponPickups.length < 3) {
-            const rank = Math.min(player.weaponRank + 1, WEAPONS.length - 1);
+          const nextRank = player.weapons.findIndex((weaponState, index) => index > 0 && !weaponState.unlocked);
+          if (nextRank !== -1 && (zombie.type === zombieTypes.boss || Math.random() < .24) &&
+            weaponPickups.length < 3 && !weaponPickups.some((pickup) => pickup.rank === nextRank)) {
+            const rank = nextRank;
             weaponPickups.push({ x: zombie.x, y: zombie.y, rank, life: 12, bob: Math.random() * Math.PI * 2 });
           }
           dropSupplies(zombie);
@@ -359,12 +402,23 @@
         }
 
         function detonateGrenade(grenade) {
-          const radius = 150;
+          const radius = 90;
           makeBurst(grenade.x, grenade.y, "#ff9d51", 28);
           for (const zombie of zombies) {
             if (zombie.hit || Math.hypot(grenade.x - zombie.x, grenade.y - zombie.y) > radius) continue;
-            zombie.health -= zombie.type === zombieTypes.boss ? 30 : zombie.health;
+            zombie.health -= zombie.type === zombieTypes.boss ? 70 : zombie.health;
             makeBurst(zombie.x, zombie.y, "#ffb36b", 7);
+            if (zombie.health <= 0) killZombie(zombie);
+          }
+        }
+
+        function detonateRocket(rocket) {
+          const weapon = WEAPONS[rocket.weaponRank];
+          makeBurst(rocket.x, rocket.y, weapon.color, 34);
+          for (const zombie of zombies) {
+            if (zombie.hit || Math.hypot(rocket.x - zombie.x, rocket.y - zombie.y) > weapon.blastRadius) continue;
+            zombie.health -= zombie.type === zombieTypes.boss ? weapon.bossDamage : weapon.damage;
+            makeBurst(zombie.x, zombie.y, weapon.color, 8);
             if (zombie.health <= 0) killZombie(zombie);
           }
         }
@@ -372,10 +426,12 @@
         function fire() {
           if (state !== "playing" || !player) return;
           const now = performance.now();
-          const weapon = WEAPONS[player.weaponRank];
-          if (weapon.magazineSize && player.reloadUntil) return;
+          const rank = player.weaponRank;
+          const weapon = WEAPONS[rank];
+          const weaponState = player.weapons[rank];
+          if (weaponState.reloadUntil) return;
           if (now - lastShot < weapon.delay) return;
-          if (weapon.magazineSize && player.ammo <= 0) {
+          if (weaponState.ammo <= 0) {
             startReload(now);
             return;
           }
@@ -389,39 +445,53 @@
             const angle = baseAngle + offset * weapon.spread + (weapon.spread > 0 ? (Math.random() - .5) * weapon.spread * .35 : 0);
             const vx = Math.cos(angle);
             const vy = Math.sin(angle);
-            bullets.push({ x: player.x + vx * 18, y: player.y + vy * 18, vx: vx * weapon.bulletSpeed, vy: vy * weapon.bulletSpeed, life: 1.05, damage: 1, color: weapon.color });
+            bullets.push({
+              x: player.x + vx * 18, y: player.y + vy * 18,
+              vx: vx * weapon.bulletSpeed, vy: vy * weapon.bulletSpeed,
+              life: weapon.rocket ? 2.2 : 1.05,
+              damage: weapon.damage || 1,
+              kind: weapon.rocket ? "rocket" : "bullet",
+              weaponRank: rank, color: weapon.color
+            });
           }
-          if (weapon.magazineSize) {
-            player.ammo--;
-            updateStats();
-            if (player.ammo === 0) startReload(now);
+          weaponState.ammo--;
+          updateStats();
+          if (weaponState.ammo === 0) {
+            startReload(now);
           }
-          makeBurst(player.x + Math.cos(baseAngle) * 17, player.y + Math.sin(baseAngle) * 17, weapon.color, weapon.pellets + 2);
+          if (weapon.rocket) {
+            makeBurst(player.x + Math.cos(baseAngle) * 17, player.y + Math.sin(baseAngle) * 17, weapon.color, 10);
+          } else {
+            makeBurst(player.x + Math.cos(baseAngle) * 17, player.y + Math.sin(baseAngle) * 17, weapon.color, weapon.pellets + 2);
+          }
         }
 
         function startReload(now) {
           const weapon = WEAPONS[player.weaponRank];
-          if (!weapon.magazineSize || player.reloadUntil) return;
-          player.reloadUntil = now + weapon.reloadTime * 1000;
-          reloadNoticeUntil = player.reloadUntil;
+          const weaponState = player.weapons[player.weaponRank];
+          if (weaponState.reloadUntil) return;
+          weaponState.reloadUntil = now + weapon.reloadTime * 1000;
+          weaponState.reloadNoticeUntil = weaponState.reloadUntil;
           statusText.textContent = "Reloading";
           updateStats();
         }
 
         function updateReload(now) {
-          const weapon = WEAPONS[player.weaponRank];
-          if (player.reloadUntil && now >= player.reloadUntil) {
-            player.ammo = weapon.magazineSize;
-            player.reloadUntil = 0;
-            updateStats();
-          }
-          if (reloadNoticeUntil && now >= reloadNoticeUntil) {
-            reloadNoticeUntil = 0;
-            if (statusText.textContent === "Reloading") {
-              statusText.textContent = defeated === waveZombieCount() ? "Area clear" : "Under attack";
+          let changed = false;
+          for (let rank = 0; rank < player.weapons.length; rank++) {
+            const weaponState = player.weapons[rank];
+            const weapon = WEAPONS[rank];
+            if (weaponState.reloadUntil && now >= weaponState.reloadUntil) {
+              weaponState.ammo = weapon.magazineSize;
+              weaponState.reloadUntil = 0;
+              weaponState.reloadNoticeUntil = 0;
+              if (rank === player.weaponRank && statusText.textContent === "Reloading") {
+                statusText.textContent = defeated === waveZombieCount() ? "Area clear" : "Under attack";
+              }
+              changed = true;
             }
-            updateStats();
           }
+          if (changed) updateStats();
         }
 
         function endGame() {
@@ -489,7 +559,7 @@
             spawnClock -= dt;
             if (spawnClock <= 0) {
               spawnZombie();
-              spawnClock = Math.max(.24, .92 - level * .1);
+              spawnClock = Math.max(.18, .75 - level * .07);
             }
           }
 
@@ -497,13 +567,23 @@
             bullet.x += bullet.vx * dt;
             bullet.y += bullet.vy * dt;
             bullet.life -= dt;
+            if (bullet.kind === "rocket" &&
+              (bullet.life <= 0 || bullet.x < 0 || bullet.x > W || bullet.y < 0 || bullet.y > H)) {
+              bullet.life = 0;
+              detonateRocket(bullet);
+              continue;
+            }
             for (const zombie of zombies) {
               if (zombie.hit) continue;
-              if (Math.hypot(bullet.x - zombie.x, bullet.y - zombie.y) < zombie.radius + 5) {
+              if (Math.hypot(bullet.x - zombie.x, bullet.y - zombie.y) < zombie.radius + (bullet.kind === "rocket" ? 11 : 5)) {
                 bullet.life = 0;
-                zombie.health -= bullet.damage;
-                if (zombie.health <= 0) killZombie(zombie);
-                else makeBurst(zombie.x, zombie.y, zombie.type.skin, 4);
+                if (bullet.kind === "rocket") {
+                  detonateRocket(bullet);
+                } else {
+                  zombie.health -= bullet.damage;
+                  if (zombie.health <= 0) killZombie(zombie);
+                  else makeBurst(zombie.x, zombie.y, zombie.type.skin, 4);
+                }
                 break;
               }
             }
@@ -536,7 +616,7 @@
               zombie.x -= dx / distance * 100 * dt;
               zombie.y -= dy / distance * 100 * dt;
             } else if (distance < zombie.radius + player.radius && player.invulnerable <= 0) {
-              const contactDamage = zombie.type === zombieTypes.boss ? 40 : zombie.type === zombieTypes.brute ? 25 : zombie.type === zombieTypes.runner ? 13 : 18;
+              const contactDamage = zombie.type === zombieTypes.boss ? 45 : zombie.type === zombieTypes.brute ? 32 : zombie.type === zombieTypes.runner ? 17 : 22;
               health = Math.max(0, health - contactDamage);
               player.invulnerable = .72;
               damageFlash = .2;
@@ -561,18 +641,9 @@
             pickup.bob += dt * 3;
             if (Math.hypot(pickup.x - player.x, pickup.y - player.y) < 30) {
               pickup.life = 0;
-              const nextRank = Math.max(player.weaponRank, pickup.rank);
-              if (nextRank > player.weaponRank) {
-                player.weaponRank = nextRank;
-                player.ammo = WEAPONS[nextRank].magazineSize || Infinity;
-                player.reloadUntil = 0;
-                reloadNoticeUntil = 0;
-              }
-              updateStats();
-              banner = `${WEAPONS[player.weaponRank].name.toUpperCase()} EQUIPPED`;
-              bannerTime = 1.8;
-              statusText.textContent = "Weapon upgraded";
-              makeBurst(pickup.x, pickup.y, WEAPONS[player.weaponRank].color, 16);
+              player.weapons[pickup.rank].unlocked = true;
+              selectWeapon(pickup.rank);
+              makeBurst(pickup.x, pickup.y, WEAPONS[pickup.rank].color, 16);
             }
           }
           weaponPickups = weaponPickups.filter((pickup) => pickup.life > 0);
@@ -729,8 +800,21 @@
           }
           ctx.globalAlpha = 1;
           for (const bullet of bullets) {
-            ctx.save(); ctx.shadowColor = bullet.color || "#ffd27a"; ctx.shadowBlur = 12; ctx.fillStyle = bullet.color || "#fff0bd";
-            ctx.beginPath(); ctx.arc(bullet.x, bullet.y, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+            ctx.save();
+            ctx.shadowColor = bullet.color || "#ffd27a";
+            ctx.shadowBlur = 12;
+            ctx.fillStyle = bullet.color || "#fff0bd";
+            if (bullet.kind === "rocket") {
+              ctx.translate(bullet.x, bullet.y);
+              ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
+              ctx.fillRect(-9, -4, 17, 8);
+              ctx.beginPath(); ctx.moveTo(8, -5); ctx.lineTo(15, 0); ctx.lineTo(8, 5); ctx.fill();
+              ctx.fillStyle = "#ffca7a";
+              ctx.fillRect(-13, -2, 4, 4);
+            } else {
+              ctx.beginPath(); ctx.arc(bullet.x, bullet.y, 3.5, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.restore();
           }
           for (const pickup of weaponPickups) {
             const bob = Math.sin(pickup.bob) * 4;
@@ -839,6 +923,9 @@
           if (directions[key]) { keys.add(key); event.preventDefault(); }
           if (event.code === "Space") { event.preventDefault(); spaceFiring = true; }
           if (key === "g" && !event.repeat) { event.preventDefault(); throwGrenade(); }
+          if (key === "q" && !event.repeat) { event.preventDefault(); cycleWeapon(-1); }
+          if (key === "e" && !event.repeat) { event.preventDefault(); cycleWeapon(1); }
+          if (/^[1-5]$/.test(key)) { event.preventDefault(); selectWeapon(Number(key) - 1); }
           if (key === "p" || key === "Escape") { event.preventDefault(); pauseGame(); }
           if (key === "r") startGame();
           if (event.key === "Enter" && (state === "ready" || state === "over" || state === "won")) startGame();
@@ -856,6 +943,8 @@
         startButton.addEventListener("click", () => state === "paused" ? pauseGame() : startGame());
         document.getElementById("pauseButton").addEventListener("click", pauseGame);
         document.getElementById("restartButton").addEventListener("click", startGame);
+        prevWeaponButton.addEventListener("click", () => cycleWeapon(-1));
+        nextWeaponButton.addEventListener("click", () => cycleWeapon(1));
         grenadeButton.addEventListener("click", throwGrenade);
         document.querySelectorAll(".mobile-controls button").forEach((button) => {
           const keyByDirection = { up: "ArrowUp", left: "ArrowLeft", down: "ArrowDown", right: "ArrowRight" };
@@ -864,7 +953,7 @@
           for (const type of ["pointerup", "pointercancel", "pointerleave"]) button.addEventListener(type, () => keys.delete(key));
         });
 
-        player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, ammo: Infinity, reloadUntil: 0, grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
+        player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
         updateStats();
         render();
         requestAnimationFrame((time) => { lastTime = time; requestAnimationFrame(frame); });
