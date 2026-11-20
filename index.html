@@ -80,18 +80,24 @@
       .arena-hud-fill { width: 100%; height: 100%; border-radius: inherit; background: #c3f36b; transition: width .2s ease, background .2s ease; }
       .arena-ammo-card { min-width: 150px; text-align: right; }
       .overlay {
-        position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 18px;
-        background: rgba(10, 13, 10, .72); backdrop-filter: blur(5px);
+        position: absolute; inset: 0; z-index: 2; display: flex; align-items: safe center; justify-content: safe center; padding: 18px;
+        overflow-y: auto; background: rgba(10, 13, 10, .72); backdrop-filter: blur(5px);
       }
       .overlay[hidden] { display: none; }
       .overlay-card {
-        width: min(100%, 360px); padding: 28px 25px 24px; border: 1px solid rgba(176, 195, 164, .2);
+        width: min(100%, 360px); flex: 0 0 auto; padding: 28px 25px 24px; border: 1px solid rgba(176, 195, 164, .2);
         border-radius: 17px; background: rgba(25, 30, 24, .97); text-align: center;
         box-shadow: 0 20px 60px rgba(0, 0, 0, .4);
       }
       .overlay-icon { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 15px; border-radius: 15px; background: rgba(195, 243, 107, .1); color: var(--lime); font-size: 23px; }
       .overlay h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
       .overlay p { margin: 10px 0 20px; color: #aab3a4; font-size: 14px; line-height: 1.6; }
+      .kill-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: -4px 0 18px; text-align: left; }
+      .kill-breakdown[hidden] { display: none; }
+      .kill-breakdown-heading { grid-column: 1 / -1; margin-bottom: 2px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+      .kill-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid rgba(176, 195, 164, .12); border-radius: 6px; background: rgba(255, 255, 255, .025); font-size: 12px; }
+      .kill-row strong { color: var(--lime); font-variant-numeric: tabular-nums; }
+      .kill-row-total { grid-column: 1 / -1; }
       .primary-button {
         width: 100%; min-height: 46px; border: 0; border-radius: 10px; background: var(--lime);
         color: #18200d; font-weight: 750; cursor: pointer; transition: background .15s ease, transform .15s ease;
@@ -120,6 +126,8 @@
         .stat-value { font-size: 17px; }
         .board-footer { align-items: flex-start; }
         .mobile-controls { display: grid; }
+        .overlay { align-items: flex-start; }
+        .overlay-card { margin: 0; padding: 22px 18px 18px; }
         .arena-hud { top: 9px; left: 9px; right: 9px; gap: 7px; }
         .arena-hud-card { min-width: 0; padding: 7px 9px; }
         .arena-hud-line { gap: 7px; }
@@ -178,6 +186,7 @@
             <div class="overlay-icon" id="overlayIcon" aria-hidden="true">✦</div>
             <h2 id="overlayTitle">The night is yours</h2>
             <p id="overlayText">Survive endless zombie waves. Collect gun-specific ammo from zombies and switch weapons when a gun runs dry. Walk over weapon drops to unlock guns; use Q/E or keys 1–5 to switch. New zombie types join every two levels after level 3.</p>
+            <div class="kill-breakdown" id="killBreakdown" aria-label="Kills by weapon" hidden></div>
             <button class="primary-button" id="startButton" type="button">Start survival</button>
           </div>
         </div>
@@ -239,6 +248,7 @@
         const overlayIcon = document.getElementById("overlayIcon");
         const overlayTitle = document.getElementById("overlayTitle");
         const overlayText = document.getElementById("overlayText");
+        const killBreakdown = document.getElementById("killBreakdown");
         const startButton = document.getElementById("startButton");
         const keys = new Set();
         const zombieTypes = {
@@ -280,9 +290,11 @@
           { name: "Auto Rifle", delay: 65, bulletSpeed: 1050, spread: .024, pellets: 1, magazineSize: 32, startingReserve: 64, maxReserve: 128, reloadTime: .5, color: "#79dfff" },
           { name: "Rocket Launcher", delay: 650, bulletSpeed: 680, spread: 0, pellets: 1, magazineSize: 3, startingReserve: 6, maxReserve: 12, reloadTime: 1.5, rocket: true, damage: 22, bossDamage: 55, blastRadius: 135, color: "#ff805d" }
         ];
+        const KILL_SOURCES = [...WEAPONS.map((weapon) => weapon.name), "Melee", "Grenade"];
         let player, zombies = [], bullets = [], particles = [], weaponPickups = [], supplyPickups = [], grenades = [];
         let mouseFiring = false, spaceFiring = false;
         let state = "ready", score = 0, best = 0, level = 1, health = 100;
+        let killsBySource = {};
         let spawned = 0, defeated = 0, spawnClock = 0, intermission = 0;
         let lastTime = 0, lastShot = 0, damageFlash = 0, banner = "", bannerTime = 0;
         let aim = { x: W * .75, y: H * .5 };
@@ -290,16 +302,43 @@
         try { best = Number(localStorage.getItem("zombie-rush-best")) || 0; } catch { best = 0; }
         bestLabel.textContent = String(best).padStart(4, "0");
 
-        function setOverlay(title, text, button, icon) {
+        function setOverlay(title, text, button, icon, showKillBreakdown = false) {
           overlayTitle.textContent = title;
           overlayText.textContent = text;
           startButton.textContent = button;
           overlayIcon.textContent = icon;
+          killBreakdown.hidden = !showKillBreakdown;
+          if (showKillBreakdown) {
+            killBreakdown.replaceChildren();
+            const heading = document.createElement("div");
+            heading.className = "kill-breakdown-heading";
+            heading.textContent = "Kills by weapon";
+            killBreakdown.append(heading);
+            for (const source of KILL_SOURCES) {
+              const row = document.createElement("div");
+              row.className = "kill-row";
+              const label = document.createElement("span");
+              label.textContent = source;
+              const count = document.createElement("strong");
+              count.textContent = String(killsBySource[source] || 0);
+              row.append(label, count);
+              killBreakdown.append(row);
+            }
+            const totalRow = document.createElement("div");
+            totalRow.className = "kill-row kill-row-total";
+            const totalLabel = document.createElement("span");
+            totalLabel.textContent = "Total";
+            const totalCount = document.createElement("strong");
+            totalCount.textContent = String(KILL_SOURCES.reduce((total, source) => total + (killsBySource[source] || 0), 0));
+            totalRow.append(totalLabel, totalCount);
+            killBreakdown.append(totalRow);
+          }
           overlay.hidden = false;
+          overlay.scrollTop = 0;
         }
 
         function getBiome() {
-          return BIOMES[Math.floor((level - 1) / 5) % BIOMES.length];
+          return BIOMES[Math.floor((level - 1) / 2) % BIOMES.length];
         }
 
         function updateStats() {
@@ -386,6 +425,7 @@
           mouseFiring = false;
           spaceFiring = false;
           score = 0;
+          killsBySource = Object.fromEntries(KILL_SOURCES.map((source) => [source, 0]));
           level = 1;
           health = 100;
           state = "playing";
@@ -419,12 +459,13 @@
           spawnClock = .65;
           intermission = 0;
           const newZombie = { 5: "CRAWLER", 7: "TOXIC", 9: "STALKER", 11: "ABOMINATION" }[level];
-          const biomeChanged = level > 1 && (level - 1) % 5 === 0;
+          const biomeChanged = level > 1 && (level - 1) % 2 === 0;
+          const waveAnnouncement = level % 5 === 0
+            ? `LEVEL ${level} — BOSS${newZombie ? ` + ${newZombie}` : ""}`
+            : newZombie ? `LEVEL ${level} — ${newZombie} INCOMING` : `LEVEL ${level} — INCOMING`;
           banner = biomeChanged
-            ? `${getBiome().name.toUpperCase()} BIOME`
-            : level % 5 === 0
-              ? `LEVEL ${level} — BOSS${newZombie ? ` + ${newZombie}` : ""}`
-              : newZombie ? `LEVEL ${level} — ${newZombie} INCOMING` : `LEVEL ${level} — INCOMING`;
+            ? `${getBiome().name.toUpperCase()} BIOME · ${waveAnnouncement}`
+            : waveAnnouncement;
           bannerTime = 2.2;
         }
 
@@ -461,15 +502,78 @@
           const maxHealth = type === zombieTypes.boss
             ? 70 + level * 14
             : Math.ceil(type.health + level * type.healthPerLevel);
-          zombies.push({
+          const zombie = {
             x, y, type, radius: type.radius, health: maxHealth, maxHealth,
             speed: type === zombieTypes.boss
               ? Math.min(type.speed + level * 1.1 + Math.random() * 6, 70)
               : Math.min(type.speed + level * (type === zombieTypes.runner || type === zombieTypes.crawler || type === zombieTypes.stalker ? 6 : 4) + Math.random() * 12, 200),
             wobble: Math.random() * Math.PI * 2, hit: 0
-          });
+          };
+          if (type === zombieTypes.boss) {
+            Object.assign(zombie, {
+              attackPhase: "", attackType: "ground", attackIndex: 0,
+              attackCooldown: 2.4, attackTime: 0, attackDuration: 0,
+              attackX: x, attackY: y, attackStartX: x, attackStartY: y, attackRadius: 0
+            });
+          }
+          zombies.push(zombie);
           if (spawned === 0) statusText.textContent = "Under attack";
           spawned++;
+        }
+
+        function updateBossAttack(zombie, dt) {
+          if (!zombie.attackPhase) {
+            zombie.attackCooldown -= dt;
+            if (zombie.attackCooldown <= 0) {
+              zombie.attackType = zombie.attackIndex % 2 === 0 ? "ground" : "air";
+              zombie.attackIndex++;
+              zombie.attackPhase = "windup";
+              zombie.attackDuration = zombie.attackType === "ground" ? .9 : 1.15;
+              zombie.attackTime = zombie.attackDuration;
+              zombie.attackStartX = zombie.x;
+              zombie.attackStartY = zombie.y;
+              zombie.attackX = zombie.attackType === "ground" ? zombie.x : player.x;
+              zombie.attackY = zombie.attackType === "ground" ? zombie.y : player.y;
+              zombie.attackRadius = zombie.attackType === "ground" ? 145 : 96;
+            }
+            return;
+          }
+
+          zombie.attackTime -= dt;
+          if (zombie.attackPhase === "windup") {
+            if (zombie.attackType === "air") {
+              const progress = 1 - Math.max(0, zombie.attackTime) / zombie.attackDuration;
+              zombie.x = zombie.attackStartX + (zombie.attackX - zombie.attackStartX) * progress;
+              zombie.y = zombie.attackStartY + (zombie.attackY - zombie.attackStartY) * progress;
+            }
+            if (zombie.attackTime <= 0) {
+              zombie.attackPhase = "impact";
+              zombie.attackTime = .38;
+              makeBurst(zombie.attackX, zombie.attackY, zombie.attackType === "ground" ? "#ff765e" : "#ffd16f", 24);
+              const distance = Math.hypot(player.x - zombie.attackX, player.y - zombie.attackY);
+              if (distance <= zombie.attackRadius + player.radius && player.shieldTime <= 0 && player.invulnerable <= 0) {
+                const damage = zombie.attackType === "ground" ? 28 : 38;
+                health = Math.max(0, health - damage);
+                player.invulnerable = .9;
+                damageFlash = .3;
+                const angle = Math.atan2(player.y - zombie.attackY, player.x - zombie.attackX);
+                player.x = Math.max(player.radius, Math.min(W - player.radius, player.x + Math.cos(angle) * 24));
+                player.y = Math.max(player.radius, Math.min(H - player.radius, player.y + Math.sin(angle) * 24));
+                statusText.textContent = zombie.attackType === "ground" ? "Ground slam hit" : "Air strike hit";
+                updateStats();
+                if (health <= 0) endGame();
+              } else {
+                statusText.textContent = zombie.attackType === "ground" ? "Ground slam dodged" : "Air strike dodged";
+              }
+            }
+            return;
+          }
+
+          if (zombie.attackTime <= 0) {
+            zombie.attackPhase = "";
+            zombie.attackTime = 0;
+            zombie.attackCooldown = 1.7;
+          }
         }
 
         function makeBurst(x, y, color, count = 8) {
@@ -502,10 +606,11 @@
           supplyPickups.push(pickup);
         }
 
-        function killZombie(zombie) {
+        function killZombie(zombie, source) {
           if (zombie.hit) return;
           zombie.hit = 1;
           defeated++;
+          killsBySource[source]++;
           const points = zombie.type === zombieTypes.boss ? 1000
             : zombie.type === zombieTypes.abomination ? 500
               : zombie.type === zombieTypes.toxic ? 350
@@ -546,7 +651,7 @@
             if (zombie.hit || Math.hypot(grenade.x - zombie.x, grenade.y - zombie.y) > radius) continue;
             zombie.health -= zombie.type === zombieTypes.boss ? 70 : zombie.health;
             makeBurst(zombie.x, zombie.y, "#ffb36b", 7);
-            if (zombie.health <= 0) killZombie(zombie);
+            if (zombie.health <= 0) killZombie(zombie, "Grenade");
           }
         }
 
@@ -557,7 +662,7 @@
             if (zombie.hit || Math.hypot(rocket.x - zombie.x, rocket.y - zombie.y) > weapon.blastRadius) continue;
             zombie.health -= zombie.type === zombieTypes.boss ? weapon.bossDamage : weapon.damage;
             makeBurst(zombie.x, zombie.y, weapon.color, 8);
-            if (zombie.health <= 0) killZombie(zombie);
+            if (zombie.health <= 0) killZombie(zombie, weapon.name);
           }
         }
 
@@ -640,7 +745,7 @@
             zombie.health -= .75;
             hits++;
             makeBurst(zombie.x, zombie.y, "#f2dfb6", 9);
-            if (zombie.health <= 0) killZombie(zombie);
+            if (zombie.health <= 0) killZombie(zombie, "Melee");
           }
           makeBurst(player.x + Math.cos(player.meleeAngle) * 47, player.y + Math.sin(player.meleeAngle) * 47, "#f2dfb6", 7);
           statusText.textContent = hits ? `Melee hit ${hits}` : "Melee swing";
@@ -680,7 +785,8 @@
             "The horde got you",
             `You survived ${level} ${level === 1 ? "level" : "levels"} and scored ${score} points. How long can you hold out next time?`,
             "Play again",
-            "↻"
+            "↻",
+            true
           );
           updateStats();
         }
@@ -754,7 +860,7 @@
                   detonateRocket(bullet);
                 } else {
                   zombie.health -= bullet.damage;
-                  if (zombie.health <= 0) killZombie(zombie);
+                  if (zombie.health <= 0) killZombie(zombie, WEAPONS[bullet.weaponRank].name);
                   else makeBurst(zombie.x, zombie.y, zombie.type.skin, 4);
                 }
                 break;
@@ -779,29 +885,36 @@
           zombies = zombies.filter((zombie) => !zombie.hit);
 
           for (const zombie of zombies) {
+            zombie.wobble += dt * 5;
+            if (zombie.type === zombieTypes.boss) {
+              updateBossAttack(zombie, dt);
+              if (state !== "playing") return;
+            }
+            const bossAttacking = zombie.type === zombieTypes.boss && zombie.attackPhase !== "";
             const dx = player.x - zombie.x;
             const dy = player.y - zombie.y;
             const distance = Math.hypot(dx, dy) || 1;
-            zombie.wobble += dt * 5;
-            zombie.x += dx / distance * zombie.speed * dt + Math.sin(zombie.wobble) * 7 * dt;
-            zombie.y += dy / distance * zombie.speed * dt + Math.cos(zombie.wobble) * 7 * dt;
-            if (distance < zombie.radius + player.radius && player.shieldTime > 0) {
-              zombie.x -= dx / distance * 100 * dt;
-              zombie.y -= dy / distance * 100 * dt;
-            } else if (distance < zombie.radius + player.radius && player.invulnerable <= 0) {
-              const contactDamage = zombie.type === zombieTypes.boss ? 45
-                : zombie.type === zombieTypes.abomination ? 40
-                  : zombie.type === zombieTypes.toxic ? 30
-                    : zombie.type === zombieTypes.stalker ? 24
-                      : zombie.type === zombieTypes.brute ? 32
-                        : zombie.type === zombieTypes.runner || zombie.type === zombieTypes.crawler ? 17 : 22;
-              health = Math.max(0, health - contactDamage);
-              player.invulnerable = .72;
-              damageFlash = .2;
-              player.x = Math.max(player.radius, Math.min(W - player.radius, player.x + dx / distance * 27));
-              player.y = Math.max(player.radius, Math.min(H - player.radius, player.y + dy / distance * 27));
-              updateStats();
-              if (health <= 0) { endGame(); return; }
+            if (!bossAttacking) {
+              zombie.x += dx / distance * zombie.speed * dt + Math.sin(zombie.wobble) * 7 * dt;
+              zombie.y += dy / distance * zombie.speed * dt + Math.cos(zombie.wobble) * 7 * dt;
+              if (distance < zombie.radius + player.radius && player.shieldTime > 0) {
+                zombie.x -= dx / distance * 100 * dt;
+                zombie.y -= dy / distance * 100 * dt;
+              } else if (distance < zombie.radius + player.radius && player.invulnerable <= 0) {
+                const contactDamage = zombie.type === zombieTypes.boss ? 45
+                  : zombie.type === zombieTypes.abomination ? 40
+                    : zombie.type === zombieTypes.toxic ? 30
+                      : zombie.type === zombieTypes.stalker ? 24
+                        : zombie.type === zombieTypes.brute ? 32
+                          : zombie.type === zombieTypes.runner || zombie.type === zombieTypes.crawler ? 17 : 22;
+                health = Math.max(0, health - contactDamage);
+                player.invulnerable = .72;
+                damageFlash = .2;
+                player.x = Math.max(player.radius, Math.min(W - player.radius, player.x + dx / distance * 27));
+                player.y = Math.max(player.radius, Math.min(H - player.radius, player.y + dy / distance * 27));
+                updateStats();
+                if (health <= 0) { endGame(); return; }
+              }
             }
           }
 
@@ -986,12 +1099,57 @@
           }
         }
 
-        function drawZombie(zombie) {
+        function drawBossAttack(zombie) {
+          if (!zombie.attackPhase) return;
+          const warning = zombie.attackPhase === "windup";
+          const color = zombie.attackType === "ground" ? "#ff765e" : "#ffd16f";
+          const progress = warning ? 0 : 1 - zombie.attackTime / .38;
+          const radius = warning ? zombie.attackRadius : zombie.attackRadius * (.25 + progress * .75);
           ctx.save();
-          ctx.translate(zombie.x, zombie.y);
+          ctx.globalAlpha = warning ? .1 + Math.sin(performance.now() / 90) * .035 : .24 * (1 - progress);
+          ctx.fillStyle = color;
+          ctx.beginPath(); ctx.arc(zombie.attackX, zombie.attackY, warning ? zombie.attackRadius : radius, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = warning ? .75 : Math.max(0, 1 - progress);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = warning ? 3 : 6;
+          ctx.setLineDash(warning ? [12, 8] : []);
+          ctx.beginPath(); ctx.arc(zombie.attackX, zombie.attackY, radius, 0, Math.PI * 2); ctx.stroke();
+          if (warning && zombie.attackType === "air") {
+            ctx.setLineDash([]);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(zombie.attackX - 18, zombie.attackY); ctx.lineTo(zombie.attackX + 18, zombie.attackY);
+            ctx.moveTo(zombie.attackX, zombie.attackY - 18); ctx.lineTo(zombie.attackX, zombie.attackY + 18);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = color;
+          ctx.font = "700 13px Inter, system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(zombie.attackType === "ground" ? "GROUND SLAM" : "AIR STRIKE", zombie.attackX, zombie.attackY - zombie.attackRadius - 12);
+          ctx.restore();
+        }
+
+        function drawZombie(zombie) {
+          const isBoss = zombie.type === zombieTypes.boss;
+          const airborne = isBoss && zombie.attackType === "air" && zombie.attackPhase === "windup";
+          const flightProgress = airborne ? 1 - zombie.attackTime / zombie.attackDuration : 0;
+          const lift = airborne ? Math.sin(flightProgress * Math.PI) * 72 : 0;
+          if (isBoss) drawBossAttack(zombie);
+          if (airborne) {
+            ctx.save();
+            ctx.fillStyle = "rgba(0, 0, 0, .28)";
+            ctx.beginPath(); ctx.ellipse(zombie.x, zombie.y + zombie.radius * .72, zombie.radius * 1.25, 8, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+          }
+          ctx.save();
+          ctx.translate(zombie.x, zombie.y - lift);
           ctx.rotate(Math.atan2(player.y - zombie.y, player.x - zombie.x));
-          ctx.fillStyle = "rgba(0,0,0,.24)";
-          ctx.beginPath(); ctx.ellipse(0, zombie.radius * .72, zombie.radius * 1.1, 5, 0, 0, Math.PI * 2); ctx.fill();
+          if (!airborne) {
+            ctx.fillStyle = "rgba(0,0,0,.24)";
+            ctx.beginPath(); ctx.ellipse(0, zombie.radius * .72, zombie.radius * 1.1, 5, 0, 0, Math.PI * 2); ctx.fill();
+          }
           ctx.fillStyle = zombie.type.shadow;
           ctx.beginPath(); ctx.arc(0, 0, zombie.radius, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = zombie.type.skin;
@@ -1047,7 +1205,7 @@
           ctx.restore();
           if (zombie.maxHealth > 1) {
             const width = zombie.type === zombieTypes.boss ? 78 : zombie.type === zombieTypes.brute ? 46 : 34;
-            const y = zombie.y - zombie.radius - (zombie.type === zombieTypes.boss ? 17 : 10);
+            const y = zombie.y - lift - zombie.radius - (zombie.type === zombieTypes.boss ? 17 : 10);
             ctx.fillStyle = "rgba(10, 13, 10, .88)";
             ctx.fillRect(zombie.x - width / 2, y, width, zombie.type === zombieTypes.boss ? 7 : 5);
             ctx.fillStyle = zombie.type === zombieTypes.boss ? "#ff826d" : "#e6c66e";
