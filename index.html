@@ -396,7 +396,24 @@
           lastTime = performance.now();
         }
 
+        function resupplyLevel() {
+          for (let rank = 0; rank < player.weapons.length; rank++) {
+            const weapon = WEAPONS[rank];
+            const weaponState = player.weapons[rank];
+            weaponState.reloadUntil = 0;
+            weaponState.reloadAmount = 0;
+            weaponState.reloadNoticeUntil = 0;
+            weaponState.reserveAmmo += 20;
+            if (weaponState.unlocked) {
+              const reloadAmount = Math.min(weapon.magazineSize - weaponState.ammo, weaponState.reserveAmmo);
+              weaponState.ammo += reloadAmount;
+              weaponState.reserveAmmo -= reloadAmount;
+            }
+          }
+        }
+
         function beginLevel() {
+          resupplyLevel();
           spawned = 0;
           defeated = 0;
           spawnClock = .65;
@@ -798,7 +815,7 @@
               if (!weaponState.unlocked) {
                 weaponState.unlocked = true;
                 weaponState.ammo = WEAPONS[pickup.rank].magazineSize;
-                weaponState.reserveAmmo = WEAPONS[pickup.rank].startingReserve;
+                weaponState.reserveAmmo += WEAPONS[pickup.rank].startingReserve;
               }
               selectWeapon(pickup.rank);
               makeBurst(pickup.x, pickup.y, WEAPONS[pickup.rank].color, 16);
@@ -862,9 +879,9 @@
               intermission -= dt;
               if (intermission <= 0) {
                 level++;
-                updateStats();
                 beginLevel();
                 statusText.textContent = "Rush incoming";
+                updateStats();
               }
             }
           }
