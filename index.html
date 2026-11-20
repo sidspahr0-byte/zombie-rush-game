@@ -54,6 +54,7 @@
       .stat { min-height: 72px; padding: 13px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
       .stat-label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
       .stat-value { font-size: 20px; font-weight: 720; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+      .stat-subvalue { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 600; }
       .stat:first-child .stat-value { color: var(--lime); }
       .health-value { display: flex; align-items: center; gap: 10px; }
       .health-track { height: 7px; flex: 1; overflow: hidden; border-radius: 8px; background: #333a31; }
@@ -124,7 +125,11 @@
       <section class="scorebar" aria-label="Game stats">
         <div class="stat"><span class="stat-label">Score</span><span class="stat-value" id="score">0000</span></div>
         <div class="stat"><span class="stat-label">Best</span><span class="stat-value" id="best">0000</span></div>
-        <div class="stat"><span class="stat-label">Level</span><span class="stat-value" id="level">1</span></div>
+        <div class="stat">
+          <span class="stat-label">Level · biome</span>
+          <span class="stat-value" id="level">1</span>
+          <span class="stat-subvalue" id="biome">Grasslands</span>
+        </div>
         <div class="stat">
           <span class="stat-label">Health</span>
           <span class="health-value"><span class="stat-value" id="health">100%</span><span class="health-track"><span class="health-fill" id="healthFill"></span></span></span>
@@ -152,15 +157,16 @@
           <span>Move</span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>or arrows</span>
           <span>· Aim with mouse, hold to fire</span><span>· Hold <kbd>Space</kbd> to fire</span>
           <span>· <kbd>Q</kbd>/<kbd>E</kbd> switch unlocked guns</span>
-          <span>· <kbd>1</kbd>–<kbd>5</kbd> equip</span><span>· Ammo drops match guns</span>
+          <span>· <kbd>1</kbd>–<kbd>5</kbd> equip</span><span>· <kbd>R</kbd> reload</span><span>· Ammo drops match guns</span>
           <span>· <kbd>G</kbd> grenade</span>
         </div>
         <div class="game-controls">
           <button type="button" id="prevWeaponButton" aria-label="Previous unlocked weapon">Gun ◀</button>
           <button type="button" id="nextWeaponButton" aria-label="Next unlocked weapon">Gun ▶</button>
+          <button type="button" id="reloadButton">Reload (R)</button>
           <button type="button" id="grenadeButton" aria-label="Throw grenade">Grenade (1) <kbd>G</kbd></button>
           <button type="button" id="pauseButton" aria-label="Pause game">Pause <kbd>P</kbd></button>
-          <button type="button" id="restartButton">Restart <kbd>R</kbd></button>
+          <button type="button" id="restartButton">Restart</button>
         </div>
       </footer>
       <div class="mobile-controls" aria-label="Touch movement controls">
@@ -180,6 +186,7 @@
         const scoreLabel = document.getElementById("score");
         const bestLabel = document.getElementById("best");
         const levelLabel = document.getElementById("level");
+        const biomeLabel = document.getElementById("biome");
         const healthLabel = document.getElementById("health");
         const healthFill = document.getElementById("healthFill");
         const weaponLabel = document.getElementById("weapon");
@@ -188,6 +195,7 @@
         const shieldLabel = document.getElementById("shield");
         const prevWeaponButton = document.getElementById("prevWeaponButton");
         const nextWeaponButton = document.getElementById("nextWeaponButton");
+        const reloadButton = document.getElementById("reloadButton");
         const grenadeButton = document.getElementById("grenadeButton");
         const statusText = document.getElementById("statusText");
         const overlay = document.getElementById("overlay");
@@ -206,6 +214,13 @@
           abomination: { name: "Abomination", radius: 25, speed: 24, health: 8, healthPerLevel: .8, skin: "#776d78", shadow: "#453b48", eyes: "#ff764f" },
           boss: { name: "Boss", radius: 34, speed: 27, skin: "#b35d52", shadow: "#713d42", eyes: "#ffe27b" }
         };
+        const BIOMES = [
+          { name: "Grasslands", floor: "#171d17", grid: "rgba(186, 204, 169, .045)", border: "rgba(195, 243, 107, .12)", detail: "#82945b" },
+          { name: "Autumn", floor: "#211914", grid: "rgba(225, 163, 106, .055)", border: "rgba(238, 158, 91, .2)", detail: "#d18b4f" },
+          { name: "Winter", floor: "#14202a", grid: "rgba(171, 210, 232, .06)", border: "rgba(139, 211, 240, .22)", detail: "#b8e4f0" },
+          { name: "Swamp", floor: "#14201b", grid: "rgba(124, 167, 125, .055)", border: "rgba(126, 197, 138, .2)", detail: "#638b60" },
+          { name: "Badlands", floor: "#241a14", grid: "rgba(226, 173, 117, .055)", border: "rgba(240, 177, 108, .22)", detail: "#c7844b" }
+        ];
         const directions = {
           ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1],
           ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0]
@@ -235,9 +250,14 @@
           overlay.hidden = false;
         }
 
+        function getBiome() {
+          return BIOMES[Math.floor((level - 1) / 5) % BIOMES.length];
+        }
+
         function updateStats() {
           scoreLabel.textContent = String(score).padStart(4, "0");
           levelLabel.textContent = String(level);
+          biomeLabel.textContent = getBiome().name;
           healthLabel.textContent = `${Math.ceil(health)}%`;
           const rank = player?.weaponRank || 0;
           const weapon = WEAPONS[rank];
@@ -254,6 +274,8 @@
           const hasOtherWeapon = player?.weapons.some((entry, index) => entry.unlocked && index !== rank);
           prevWeaponButton.disabled = state !== "playing" || !hasOtherWeapon;
           nextWeaponButton.disabled = state !== "playing" || !hasOtherWeapon;
+          reloadButton.disabled = state !== "playing" || !weaponState || weaponState.reloadUntil > now
+            || weaponState.reserveAmmo <= 0 || weaponState.ammo >= weapon.magazineSize;
           grenadeButton.disabled = state !== "playing" || !player?.grenades;
           grenadeButton.textContent = `Grenade (${player?.grenades || 0}) · G`;
           healthFill.style.width = `${health}%`;
@@ -326,9 +348,12 @@
           spawnClock = .65;
           intermission = 0;
           const newZombie = { 5: "CRAWLER", 7: "TOXIC", 9: "STALKER", 11: "ABOMINATION" }[level];
-          banner = level % 5 === 0
-            ? `LEVEL ${level} — BOSS${newZombie ? ` + ${newZombie}` : ""}`
-            : newZombie ? `LEVEL ${level} — ${newZombie} INCOMING` : `LEVEL ${level} — INCOMING`;
+          const biomeChanged = level > 1 && (level - 1) % 5 === 0;
+          banner = biomeChanged
+            ? `${getBiome().name.toUpperCase()} BIOME`
+            : level % 5 === 0
+              ? `LEVEL ${level} — BOSS${newZombie ? ` + ${newZombie}` : ""}`
+              : newZombie ? `LEVEL ${level} — ${newZombie} INCOMING` : `LEVEL ${level} — INCOMING`;
           bannerTime = 2.2;
         }
 
@@ -506,6 +531,7 @@
         }
 
         function startReload(now) {
+          if (state !== "playing" || !player) return;
           const weapon = WEAPONS[player.weaponRank];
           const weaponState = player.weapons[player.weaponRank];
           if (weaponState.reloadUntil || weaponState.reserveAmmo <= 0 || weaponState.ammo >= weapon.magazineSize) return;
@@ -765,20 +791,26 @@
         }
 
         function drawBackground() {
-          ctx.fillStyle = "#171d17";
+          const biome = getBiome();
+          ctx.fillStyle = biome.floor;
           ctx.fillRect(0, 0, W, H);
-          ctx.strokeStyle = "rgba(186, 204, 169, .045)";
+          ctx.strokeStyle = biome.grid;
           ctx.lineWidth = 1;
           ctx.beginPath();
           for (let x = 0; x <= W; x += 40) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
           for (let y = 0; y <= H; y += 40) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
           ctx.stroke();
-          ctx.fillStyle = "rgba(195, 243, 107, .035)";
-          for (let i = 0; i < 16; i++) {
+          ctx.fillStyle = biome.detail;
+          ctx.globalAlpha = .12;
+          for (let i = 0; i < 36; i++) {
             const x = (i * 197 + 67) % W, y = (i * 131 + 39) % H;
-            ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+            const size = biome.name === "Winter" ? 2.5 : 2 + i % 3;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
           }
-          ctx.strokeStyle = "rgba(195, 243, 107, .12)";
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = biome.border;
           ctx.lineWidth = 2;
           ctx.strokeRect(12, 12, W - 24, H - 24);
         }
@@ -1032,7 +1064,7 @@
           if (key === "e" && !event.repeat) { event.preventDefault(); cycleWeapon(1); }
           if (/^[1-5]$/.test(key)) { event.preventDefault(); selectWeapon(Number(key) - 1); }
           if (key === "p" || key === "Escape") { event.preventDefault(); pauseGame(); }
-          if (key === "r") startGame();
+          if (key === "r" && !event.repeat) { event.preventDefault(); startReload(performance.now()); }
           if (event.key === "Enter" && (state === "ready" || state === "over" || state === "won")) startGame();
         });
         document.addEventListener("keyup", (event) => {
@@ -1050,6 +1082,7 @@
         document.getElementById("restartButton").addEventListener("click", startGame);
         prevWeaponButton.addEventListener("click", () => cycleWeapon(-1));
         nextWeaponButton.addEventListener("click", () => cycleWeapon(1));
+        reloadButton.addEventListener("click", () => startReload(performance.now()));
         grenadeButton.addEventListener("click", throwGrenade);
         document.querySelectorAll(".mobile-controls button").forEach((button) => {
           const keyByDirection = { up: "ArrowUp", left: "ArrowLeft", down: "ArrowDown", right: "ArrowRight" };
