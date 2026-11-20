@@ -64,6 +64,21 @@
         background: #171d17; box-shadow: 0 24px 80px rgba(0, 0, 0, .34), 0 0 0 5px rgba(255, 255, 255, .015);
       }
       canvas { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; touch-action: none; cursor: crosshair; }
+      .arena-hud {
+        position: absolute; z-index: 1; top: 16px; left: 16px; right: 16px;
+        display: flex; justify-content: space-between; gap: 10px; pointer-events: none;
+      }
+      .arena-hud-card {
+        min-width: 190px; padding: 10px 13px; border: 1px solid rgba(210, 228, 195, .2);
+        border-radius: 10px; background: rgba(11, 16, 12, .78); color: #eef4e8;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .2); backdrop-filter: blur(5px);
+      }
+      .arena-hud-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+      .arena-hud-label { color: #b6c2ad; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      .arena-hud-value { font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; }
+      .arena-hud-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 8px; background: rgba(220, 231, 207, .18); }
+      .arena-hud-fill { width: 100%; height: 100%; border-radius: inherit; background: #c3f36b; transition: width .2s ease, background .2s ease; }
+      .arena-ammo-card { min-width: 150px; text-align: right; }
       .overlay {
         position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 18px;
         background: rgba(10, 13, 10, .72); backdrop-filter: blur(5px);
@@ -105,6 +120,13 @@
         .stat-value { font-size: 17px; }
         .board-footer { align-items: flex-start; }
         .mobile-controls { display: grid; }
+        .arena-hud { top: 9px; left: 9px; right: 9px; gap: 7px; }
+        .arena-hud-card { min-width: 0; padding: 7px 9px; }
+        .arena-hud-line { gap: 7px; }
+        .arena-hud-label { font-size: 9px; }
+        .arena-hud-value { font-size: 13px; }
+        .arena-hud-track { height: 5px; margin-top: 5px; }
+        .arena-ammo-card { min-width: 105px; }
       }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
     </style>
@@ -141,7 +163,16 @@
       </section>
 
       <div class="board-shell">
-        <canvas id="board" width="1280" height="800" aria-label="Zombie survival game arena. Aim with the mouse and hold the mouse button or Space to shoot."></canvas>
+        <canvas id="board" width="1280" height="800" aria-label="Zombie survival game arena. Aim with the mouse, hold the mouse button or Space to shoot, and press F to melee."></canvas>
+        <div class="arena-hud" aria-label="In-arena health and ammunition">
+          <div class="arena-hud-card">
+            <div class="arena-hud-line"><span class="arena-hud-label">Health</span><strong class="arena-hud-value" id="arenaHealth">100%</strong></div>
+            <div class="arena-hud-track"><div class="arena-hud-fill" id="arenaHealthFill"></div></div>
+          </div>
+          <div class="arena-hud-card arena-ammo-card">
+            <div class="arena-hud-line"><span class="arena-hud-label" id="arenaWeapon">Pistol</span><strong class="arena-hud-value" id="arenaAmmo">12 | 36</strong></div>
+          </div>
+        </div>
         <div class="overlay" id="overlay">
           <div class="overlay-card">
             <div class="overlay-icon" id="overlayIcon" aria-hidden="true">✦</div>
@@ -158,12 +189,13 @@
           <span>· Aim with mouse, hold to fire</span><span>· Hold <kbd>Space</kbd> to fire</span>
           <span>· <kbd>Q</kbd>/<kbd>E</kbd> switch unlocked guns</span>
           <span>· <kbd>1</kbd>–<kbd>5</kbd> equip</span><span>· <kbd>R</kbd> reload</span><span>· Ammo drops match guns</span>
-          <span>· <kbd>G</kbd> grenade</span>
+          <span>· <kbd>F</kbd> melee</span><span>· <kbd>G</kbd> grenade</span>
         </div>
         <div class="game-controls">
           <button type="button" id="prevWeaponButton" aria-label="Previous unlocked weapon">Gun ◀</button>
           <button type="button" id="nextWeaponButton" aria-label="Next unlocked weapon">Gun ▶</button>
           <button type="button" id="reloadButton">Reload (R)</button>
+          <button type="button" id="meleeButton">Melee <kbd>F</kbd></button>
           <button type="button" id="grenadeButton" aria-label="Throw grenade">Grenade (1) <kbd>G</kbd></button>
           <button type="button" id="pauseButton" aria-label="Pause game">Pause <kbd>P</kbd></button>
           <button type="button" id="restartButton">Restart</button>
@@ -189,6 +221,10 @@
         const biomeLabel = document.getElementById("biome");
         const healthLabel = document.getElementById("health");
         const healthFill = document.getElementById("healthFill");
+        const arenaHealth = document.getElementById("arenaHealth");
+        const arenaHealthFill = document.getElementById("arenaHealthFill");
+        const arenaAmmo = document.getElementById("arenaAmmo");
+        const arenaWeapon = document.getElementById("arenaWeapon");
         const weaponLabel = document.getElementById("weapon");
         const ammoLabel = document.getElementById("ammo");
         const grenadesLabel = document.getElementById("grenades");
@@ -196,6 +232,7 @@
         const prevWeaponButton = document.getElementById("prevWeaponButton");
         const nextWeaponButton = document.getElementById("nextWeaponButton");
         const reloadButton = document.getElementById("reloadButton");
+        const meleeButton = document.getElementById("meleeButton");
         const grenadeButton = document.getElementById("grenadeButton");
         const statusText = document.getElementById("statusText");
         const overlay = document.getElementById("overlay");
@@ -215,12 +252,23 @@
           boss: { name: "Boss", radius: 34, speed: 27, skin: "#b35d52", shadow: "#713d42", eyes: "#ffe27b" }
         };
         const BIOMES = [
-          { name: "Grasslands", floor: "#171d17", grid: "rgba(186, 204, 169, .045)", border: "rgba(195, 243, 107, .12)", detail: "#82945b" },
-          { name: "Autumn", floor: "#211914", grid: "rgba(225, 163, 106, .055)", border: "rgba(238, 158, 91, .2)", detail: "#d18b4f" },
-          { name: "Winter", floor: "#14202a", grid: "rgba(171, 210, 232, .06)", border: "rgba(139, 211, 240, .22)", detail: "#b8e4f0" },
-          { name: "Swamp", floor: "#14201b", grid: "rgba(124, 167, 125, .055)", border: "rgba(126, 197, 138, .2)", detail: "#638b60" },
-          { name: "Badlands", floor: "#241a14", grid: "rgba(226, 173, 117, .055)", border: "rgba(240, 177, 108, .22)", detail: "#c7844b" }
+          { name: "Grasslands", floor: "#171d17", border: "rgba(195, 243, 107, .18)", detail: "#82945b", shade: "#34432d", accent: "#b0c77c" },
+          { name: "Autumn", floor: "#211914", border: "rgba(238, 158, 91, .22)", detail: "#d18b4f", shade: "#4b3021", accent: "#e5aa68" },
+          { name: "Winter", floor: "#14202a", border: "rgba(139, 211, 240, .24)", detail: "#b8e4f0", shade: "#29404b", accent: "#e0f3f6" },
+          { name: "Swamp", floor: "#14201b", border: "rgba(126, 197, 138, .22)", detail: "#638b60", shade: "#263e35", accent: "#9db77c" },
+          { name: "Badlands", floor: "#241a14", border: "rgba(240, 177, 108, .24)", detail: "#c7844b", shade: "#4b3021", accent: "#e1b06d" }
         ];
+        const terrainDetails = Array.from({ length: 96 }, (_, index) => {
+          const random = (seed) => {
+            const value = Math.sin((index + 1) * 127.1 + seed * 311.7) * 43758.5453;
+            return value - Math.floor(value);
+          };
+          return {
+            x: random(1) * W, y: random(2) * H,
+            width: 10 + random(3) * 38, height: 5 + random(4) * 17,
+            angle: random(5) * Math.PI, kind: Math.floor(random(6) * 4)
+          };
+        });
         const directions = {
           ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1],
           ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0]
@@ -259,16 +307,20 @@
           levelLabel.textContent = String(level);
           biomeLabel.textContent = getBiome().name;
           healthLabel.textContent = `${Math.ceil(health)}%`;
+          arenaHealth.textContent = `${Math.ceil(health)}%`;
           const rank = player?.weaponRank || 0;
           const weapon = WEAPONS[rank];
           const weaponState = player?.weapons[rank];
           weaponLabel.textContent = weapon.name;
           const now = performance.now();
-          ammoLabel.textContent = state === "playing" && now < (weaponState?.reloadNoticeUntil || 0)
+          const ammoText = state === "playing" && now < (weaponState?.reloadNoticeUntil || 0)
             ? "Reloading"
             : weaponState?.ammo === 0 && weaponState.reserveAmmo === 0
               ? "OUT"
               : `${weaponState?.ammo ?? weapon.magazineSize} | ${weaponState?.reserveAmmo || 0}`;
+          ammoLabel.textContent = ammoText;
+          arenaAmmo.textContent = ammoText;
+          arenaWeapon.textContent = weapon.name;
           grenadesLabel.textContent = String(player?.grenades || 0);
           shieldLabel.textContent = player?.shieldTime > 0 ? `${player.shieldTime.toFixed(1)}s` : "—";
           const hasOtherWeapon = player?.weapons.some((entry, index) => entry.unlocked && index !== rank);
@@ -279,7 +331,9 @@
           grenadeButton.disabled = state !== "playing" || !player?.grenades;
           grenadeButton.textContent = `Grenade (${player?.grenades || 0}) · G`;
           healthFill.style.width = `${health}%`;
-          healthFill.style.background = health > 55 ? "#c3f36b" : health > 25 ? "#ffc75c" : "#ff765e";
+          arenaHealthFill.style.width = `${health}%`;
+          healthFill.style.background = arenaHealthFill.style.background = health > 55 ? "#c3f36b" : health > 25 ? "#ffc75c" : "#ff765e";
+          meleeButton.disabled = state !== "playing";
         }
 
         function createWeaponStates() {
@@ -321,7 +375,7 @@
         }
 
         function startGame() {
-          player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
+          player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0, meleeCooldownUntil: 0, meleeTime: 0, meleeAngle: 0 };
           zombies = [];
           bullets = [];
           particles = [];
@@ -542,6 +596,31 @@
           updateStats();
         }
 
+        function meleeAttack() {
+          if (state !== "playing" || !player) return;
+          const now = performance.now();
+          if (now < player.meleeCooldownUntil) return;
+          player.meleeCooldownUntil = now + 520;
+          player.meleeTime = .24;
+          player.meleeAngle = Math.atan2(aim.y - player.y, aim.x - player.x);
+          let hits = 0;
+          for (const zombie of zombies) {
+            if (zombie.hit) continue;
+            const dx = zombie.x - player.x;
+            const dy = zombie.y - player.y;
+            const distance = Math.hypot(dx, dy);
+            const angle = Math.atan2(dy, dx);
+            const angleDifference = Math.atan2(Math.sin(angle - player.meleeAngle), Math.cos(angle - player.meleeAngle));
+            if (distance > 76 + zombie.radius || Math.abs(angleDifference) > .9) continue;
+            zombie.health -= 2.25;
+            hits++;
+            makeBurst(zombie.x, zombie.y, "#f2dfb6", 9);
+            if (zombie.health <= 0) killZombie(zombie);
+          }
+          makeBurst(player.x + Math.cos(player.meleeAngle) * 47, player.y + Math.sin(player.meleeAngle) * 47, "#f2dfb6", 7);
+          statusText.textContent = hits ? `Melee hit ${hits}` : "Melee swing";
+        }
+
         function updateReload(now) {
           let changed = false;
           for (let rank = 0; rank < player.weapons.length; rank++) {
@@ -602,6 +681,7 @@
           if (state !== "playing") return;
           updateReload(performance.now());
           if (mouseFiring || spaceFiring) fire();
+          if (player.meleeTime > 0) player.meleeTime = Math.max(0, player.meleeTime - dt);
           if (player.invulnerable > 0) player.invulnerable -= dt;
           if (player.shieldTime > 0) {
             player.shieldTime = Math.max(0, player.shieldTime - dt);
@@ -794,25 +874,65 @@
           const biome = getBiome();
           ctx.fillStyle = biome.floor;
           ctx.fillRect(0, 0, W, H);
-          ctx.strokeStyle = biome.grid;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          for (let x = 0; x <= W; x += 40) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
-          for (let y = 0; y <= H; y += 40) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
-          ctx.stroke();
-          ctx.fillStyle = biome.detail;
-          ctx.globalAlpha = .12;
-          for (let i = 0; i < 36; i++) {
-            const x = (i * 197 + 67) % W, y = (i * 131 + 39) % H;
-            const size = biome.name === "Winter" ? 2.5 : 2 + i % 3;
+          const glow = ctx.createRadialGradient(W * .5, H * .48, 60, W * .5, H * .48, W * .78);
+          glow.addColorStop(0, biome.shade);
+          glow.addColorStop(1, biome.floor);
+          ctx.fillStyle = glow;
+          ctx.fillRect(0, 0, W, H);
+
+          for (let i = 0; i < terrainDetails.length; i++) {
+            const patch = terrainDetails[i];
+            ctx.save();
+            ctx.translate(patch.x, patch.y);
+            ctx.rotate(patch.angle);
+            ctx.globalAlpha = patch.kind === 0 ? .12 : .07;
+            ctx.fillStyle = patch.kind % 2 ? biome.detail : biome.shade;
             ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.ellipse(0, 0, patch.width, patch.height, 0, 0, Math.PI * 2);
             ctx.fill();
+
+            if (biome.name === "Grasslands" || biome.name === "Swamp") {
+              ctx.globalAlpha = .24;
+              ctx.strokeStyle = biome.accent;
+              ctx.lineWidth = 1.5;
+              for (let blade = -1; blade <= 1; blade++) {
+                ctx.beginPath();
+                ctx.moveTo(blade * 4, 4);
+                ctx.quadraticCurveTo(blade * 3, -2, blade * 5 + 2, -8 - patch.kind * 2);
+                ctx.stroke();
+              }
+            } else if (biome.name === "Autumn") {
+              ctx.globalAlpha = .28;
+              ctx.fillStyle = biome.accent;
+              ctx.beginPath();
+              ctx.ellipse(0, 0, 5 + patch.kind, 2.5, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(5, 0); ctx.strokeStyle = biome.shade; ctx.lineWidth = 1; ctx.stroke();
+            } else if (biome.name === "Winter") {
+              ctx.globalAlpha = .3;
+              ctx.strokeStyle = biome.accent;
+              ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
+            } else if (biome.name === "Badlands") {
+              ctx.globalAlpha = .24;
+              ctx.strokeStyle = biome.accent;
+              ctx.lineWidth = 1.5;
+              ctx.beginPath(); ctx.moveTo(-8, -3); ctx.lineTo(-2, 1); ctx.lineTo(2, -2); ctx.lineTo(8, 3); ctx.stroke();
+            }
+            ctx.restore();
           }
-          ctx.globalAlpha = 1;
+
+          ctx.save();
+          const edge = ctx.createLinearGradient(0, 0, W, H);
+          edge.addColorStop(0, "rgba(0, 0, 0, .28)");
+          edge.addColorStop(.5, "rgba(0, 0, 0, 0)");
+          edge.addColorStop(1, "rgba(0, 0, 0, .24)");
+          ctx.fillStyle = edge;
+          ctx.fillRect(0, 0, W, H);
           ctx.strokeStyle = biome.border;
           ctx.lineWidth = 2;
           ctx.strokeRect(12, 12, W - 24, H - 24);
+          ctx.restore();
         }
 
         function drawSurvivor() {
@@ -1004,6 +1124,21 @@
           for (const zombie of zombies) drawZombie(zombie);
           if (player) {
             drawSurvivor();
+            if (player.meleeTime > 0) {
+              ctx.save();
+              ctx.translate(player.x, player.y);
+              ctx.rotate(player.meleeAngle);
+              ctx.globalAlpha = Math.min(1, player.meleeTime / .12);
+              ctx.strokeStyle = "#f4e3bf";
+              ctx.lineWidth = 7;
+              ctx.lineCap = "round";
+              ctx.shadowColor = "#e7c98f";
+              ctx.shadowBlur = 14;
+              ctx.beginPath();
+              ctx.arc(0, 0, 60, -.9, .9);
+              ctx.stroke();
+              ctx.restore();
+            }
             if (state === "playing") {
               ctx.strokeStyle = "rgba(221, 241, 194, .28)";
               ctx.lineWidth = 1;
@@ -1059,6 +1194,7 @@
           const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
           if (directions[key]) { keys.add(key); event.preventDefault(); }
           if (event.code === "Space") { event.preventDefault(); spaceFiring = true; }
+          if (key === "f" && !event.repeat) { event.preventDefault(); meleeAttack(); }
           if (key === "g" && !event.repeat) { event.preventDefault(); throwGrenade(); }
           if (key === "q" && !event.repeat) { event.preventDefault(); cycleWeapon(-1); }
           if (key === "e" && !event.repeat) { event.preventDefault(); cycleWeapon(1); }
@@ -1083,6 +1219,7 @@
         prevWeaponButton.addEventListener("click", () => cycleWeapon(-1));
         nextWeaponButton.addEventListener("click", () => cycleWeapon(1));
         reloadButton.addEventListener("click", () => startReload(performance.now()));
+        meleeButton.addEventListener("click", meleeAttack);
         grenadeButton.addEventListener("click", throwGrenade);
         document.querySelectorAll(".mobile-controls button").forEach((button) => {
           const keyByDirection = { up: "ArrowUp", left: "ArrowLeft", down: "ArrowDown", right: "ArrowRight" };
@@ -1091,7 +1228,7 @@
           for (const type of ["pointerup", "pointercancel", "pointerleave"]) button.addEventListener(type, () => keys.delete(key));
         });
 
-        player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0 };
+        player = { x: W / 2, y: H / 2, radius: 13, speed: 245, invulnerable: 0, weaponRank: 0, weapons: createWeaponStates(), grenades: 1, shieldTime: 0, lastShieldTenth: 0, meleeCooldownUntil: 0, meleeTime: 0, meleeAngle: 0 };
         updateStats();
         render();
         requestAnimationFrame((time) => { lastTime = time; requestAnimationFrame(frame); });
